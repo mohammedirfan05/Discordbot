@@ -1,0 +1,29 @@
+{
+  "name": "discord-notion-trading-accountability",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "register:commands": "tsx src/discord/registerCommands.ts",
+    "notion:bootstrap": "tsx src/scripts/bootstrapNotion.ts",
+    "notion:list": "tsx src/scripts/listNotionDbs.ts"
+  },
+  "dependencies": {
+    "@discordjs/rest": "^2.4.3",
+    "@notionhq/client": "^2.2.15",
+    "discord-api-types": "^0.37.115",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "node-cron": "^4.2.1",
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
