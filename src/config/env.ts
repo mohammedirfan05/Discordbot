@@ -28,5 +28,22 @@ const schema = z.object({
   LOG_LEVEL: z.string().default("info")
 });
 
-export const env = schema.parse(process.env);
+const result = schema.safeParse(process.env);
+
+if (!result.success) {
+  const lines = result.error.issues.map((issue) => {
+    const key = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+    return `- ${key}: ${issue.message}`;
+  });
+
+  throw new Error(
+    [
+      "Environment configuration is invalid.",
+      "Set the missing or invalid variables in Railway or your local .env file:",
+      ...lines
+    ].join("\n")
+  );
+}
+
+export const env = result.data;
 
