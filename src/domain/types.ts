@@ -1,6 +1,13 @@
 export type Direction = "Long" | "Short";
 export type TradeResult = "Win" | "Loss" | "BE" | "Open";
 export type GoalStatus = "Not Started" | "In Progress" | "Completed" | "Blocked";
+
+export interface ActiveGoal {
+  goalId: string;
+  goalText: string;
+  status: GoalStatus;
+  deadline: string;
+}
 export type ReportType = "Daily" | "Weekly" | "Monthly";
 
 export interface TraderUser {

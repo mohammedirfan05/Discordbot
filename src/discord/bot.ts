@@ -12,8 +12,10 @@ export function createDiscordClient(handler: InteractionHandler): Client {
     logger.info({ user: client.user?.tag }, "Discord bot ready");
   });
 
+  // Route ALL interaction types — not just slash commands.
+  // Autocomplete, button clicks, and modal submissions are handled
+  // by InteractionHandler.handle() which discriminates via type guards.
   client.on("interactionCreate", async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
     await handler.handle(interaction);
   });
 

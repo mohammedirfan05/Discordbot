@@ -251,14 +251,24 @@ Suggested Railway setup:
 
 1. Push this repo to GitHub.
 2. Create a new Railway project from the GitHub repository.
-3. Add all required environment variables in Railway, especially:
+3. Add all required environment variables in Railway. The app will not start unless all of these are present:
 	 - `DISCORD_TOKEN`
 	 - `DISCORD_CLIENT_ID`
 	 - `DISCORD_GUILD_ID`
 	 - `NOTION_TOKEN`
 	 - `NOTION_PARENT_PAGE_ID`
-	 - All six Notion database IDs
-	 - All required Discord channel IDs
+	 - `NOTION_USERS_DB_ID`
+	 - `NOTION_DAILY_CHECKINS_DB_ID`
+	 - `NOTION_TRADE_JOURNAL_DB_ID`
+	 - `NOTION_GOALS_DB_ID`
+	 - `NOTION_DISCIPLINE_LOGS_DB_ID`
+	 - `NOTION_REPORTS_DB_ID`
+	 - `CHANNEL_DAILY_CHECK_IN_ID`
+	 - `CHANNEL_TRADE_JOURNAL_ID`
+	 - `CHANNEL_WEEKLY_GOALS_ID`
+	 - `CHANNEL_DISCIPLINE_LOG_ID`
+	 - `CHANNEL_PROGRESS_TRACKER_ID`
+	 - `CHANNEL_REPORTS_ID`
 4. Set the build command to `npm run build` and the start command to `npm start`.
 5. Run `npm run notion:bootstrap` locally once if you still need to create the Notion databases.
 6. Copy the printed Notion database IDs into Railway environment variables.
@@ -286,6 +296,12 @@ If you do not want Railway, the remaining practical choices are:
 
 - The bot cannot start with `npm run dev` until `NOTION_TOKEN` is set.
 - Add a valid Notion integration token to `.env`.
+
+### Railway exits during startup
+
+- Check that every value listed in the Railway setup section exists in the Railway variables panel.
+- The startup validator prints the exact missing keys to the container logs.
+- If one of the Notion database IDs is missing, rerun `npm run notion:bootstrap` and copy the printed IDs into Railway.
 
 ### `npm run register:commands` fails
 

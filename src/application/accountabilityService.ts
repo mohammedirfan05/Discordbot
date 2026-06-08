@@ -1,12 +1,14 @@
 import type { DateRange } from "../domain/dateRange.js";
 import { buildStats } from "../domain/metrics.js";
 import type {
+  ActiveGoal,
   DailyCheckinInput,
   DisciplineInput,
   GoalInput,
   GoalStatus,
   TradeInput,
-  TraderStats
+  TraderStats,
+  TraderUser
 } from "../domain/types.js";
 import type { NotionRepositories } from "../infrastructure/notion/repositories.js";
 
@@ -17,21 +19,24 @@ export class AccountabilityService {
     validateScale("Mood", input.mood);
     validateScale("Energy", input.energy);
     validateScale("Focus", input.focus);
-    if (input.sleepHours < 0 || input.sleepHours > 24) throw new Error("Sleep hours must be between 0 and 24.");
+    if (input.sleepHours < 0 || input.sleepHours > 24) {
+      throw new Error("Sleep hours must be between 0 and 24.");
+    }
     return this.repo.createDailyCheckin(input);
   }
 
   submitTrade(input: TradeInput) {
-    if (input.riskPercent <= 0) throw new Error("Risk % must be greater than 0.");
+    validateTrade(input);
     return this.repo.createTrade(input);
   }
 
   createGoal(input: GoalInput): Promise<string> {
+    validateDeadline(input.deadline);
     return this.repo.createGoal(input);
   }
 
-  updateGoalStatus(discordUserId: string, goalId: string, status: GoalStatus): Promise<void> {
-    return this.repo.updateGoalStatus(discordUserId, goalId, status);
+  updateGoalStatus(discordUserId: string, goalId: string, goalStatus: GoalStatus): Promise<void> {
+    return this.repo.updateGoalStatus(discordUserId, goalId, goalStatus);
   }
 
   submitDiscipline(input: DisciplineInput) {
@@ -61,6 +66,32 @@ export class AccountabilityService {
     const stats = await Promise.all(users.map((user) => this.statsForUser(user.discordUserId, range)));
     return stats.sort((a, b) => traderScore(b) - traderScore(a));
   }
+
+  // ── New helpers for autocomplete + reminders ──────────────────────────────
+
+  listActiveGoals(discordUserId: string): Promise<ActiveGoal[]> {
+    return this.repo.listActiveGoals(discordUserId);
+  }
+
+  async getUsersMissingCheckin(date: string): Promise<TraderUser[]> {
+    const users = await this.repo.listUsers();
+    const missing: TraderUser[] = [];
+    for (const user of users) {
+      const checkin = await this.repo.findDailyCheckin(user.discordUserId, date);
+      if (!checkin) missing.push(user);
+    }
+    return missing;
+  }
+
+  async getUsersMissingDiscipline(date: string): Promise<TraderUser[]> {
+    const users = await this.repo.listUsers();
+    const missing: TraderUser[] = [];
+    for (const user of users) {
+      const log = await this.repo.findDisciplineLog(user.discordUserId, date);
+      if (!log) missing.push(user);
+    }
+    return missing;
+  }
 }
 
 export function traderScore(stats: TraderStats): number {
@@ -71,9 +102,45 @@ export function traderScore(stats: TraderStats): number {
     + stats.goalsCompleted * 5;
 }
 
+// ── Validators ────────────────────────────────────────────────────────────────
+
 function validateScale(label: string, value: number): void {
   if (!Number.isFinite(value) || value < 1 || value > 10) {
     throw new Error(`${label} must be between 1 and 10.`);
   }
 }
 
+function validateTrade(input: TradeInput): void {
+  if (input.direction === "Long") {
+    if (input.stopLoss >= input.entry) {
+      throw new Error("Long trade: stop loss must be **below** your entry price.");
+    }
+    if (input.takeProfit <= input.entry) {
+      throw new Error("Long trade: take profit must be **above** your entry price.");
+    }
+  } else {
+    if (input.stopLoss <= input.entry) {
+      throw new Error("Short trade: stop loss must be **above** your entry price.");
+    }
+    if (input.takeProfit >= input.entry) {
+      throw new Error("Short trade: take profit must be **below** your entry price.");
+    }
+  }
+  if (input.screenshotUrl) {
+    try {
+      new URL(input.screenshotUrl);
+    } catch {
+      throw new Error("Screenshot URL must be a valid web address (e.g., https://...).");
+    }
+  }
+}
+
+function validateDeadline(deadline: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
+    throw new Error("Deadline must be in YYYY-MM-DD format (e.g., 2026-06-15).");
+  }
+  const d = new Date(`${deadline}T00:00:00.000Z`);
+  if (isNaN(d.getTime())) {
+    throw new Error("Deadline is not a valid calendar date.");
+  }
+}

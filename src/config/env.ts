@@ -21,10 +21,13 @@ const schema = z.object({
   CHANNEL_DISCIPLINE_LOG_ID: z.string().min(1),
   CHANNEL_PROGRESS_TRACKER_ID: z.string().min(1),
   CHANNEL_REPORTS_ID: z.string().min(1),
+  CHANNEL_REMINDERS_ID: z.string().optional(),
   TIMEZONE: z.string().default("Asia/Kolkata"),
   DAILY_REPORT_CRON: z.string().default("0 22 * * *"),
   WEEKLY_REPORT_CRON: z.string().default("0 20 * * 0"),
   MONTHLY_REPORT_CRON: z.string().default("0 20 1 * *"),
+  CHECKIN_REMINDER_CRON: z.string().default("0 9 * * 1-5"),
+  DISCIPLINE_REMINDER_CRON: z.string().default("0 18 * * 1-5"),
   LOG_LEVEL: z.string().default("info")
 });
 

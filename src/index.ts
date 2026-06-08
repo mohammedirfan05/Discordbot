@@ -8,13 +8,17 @@ import { startSchedulers } from "./jobs/scheduler.js";
 import { notion } from "./infrastructure/notion/client.js";
 import { NotionRepositories } from "./infrastructure/notion/repositories.js";
 
-const repo = new NotionRepositories(notion);
+const repo           = new NotionRepositories(notion);
 const accountability = new AccountabilityService(repo);
-const reports = new ReportService(accountability, repo);
-const handler = new InteractionHandler(accountability);
-const client = createDiscordClient(handler);
+const reports        = new ReportService(accountability, repo);
+const handler        = new InteractionHandler(accountability);
+const client         = createDiscordClient(handler);
 
-startSchedulers(client, reports);
+// BUG FIX: Start schedulers inside the ready event so cron jobs never fire
+// before the Discord client is connected and channels are fetchable.
+client.once("ready", () => {
+  startSchedulers(client, accountability, reports);
+});
 
 await client.login(env.DISCORD_TOKEN);
 
@@ -26,4 +30,3 @@ process.on("uncaughtException", (error) => {
   logger.error({ error }, "Uncaught exception");
   process.exit(1);
 });
-

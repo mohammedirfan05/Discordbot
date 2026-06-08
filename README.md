@@ -15,7 +15,24 @@ Discord is the primary interface. Notion is the backend database. Traders use sl
 
 1. Create a Discord application and bot, then invite it with `applications.commands`, `bot`, `Send Messages`, `Read Message History`, and `Use Slash Commands`.
 2. Create a Notion integration and grant it access to the parent page where databases should be created.
-3. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID`, `NOTION_TOKEN`, and `NOTION_PARENT_PAGE_ID`.
+3. Copy `.env.example` to `.env` and fill in every required value:
+	- `DISCORD_TOKEN`
+	- `DISCORD_CLIENT_ID`
+	- `DISCORD_GUILD_ID`
+	- `NOTION_TOKEN`
+	- `NOTION_PARENT_PAGE_ID`
+	- `NOTION_USERS_DB_ID`
+	- `NOTION_DAILY_CHECKINS_DB_ID`
+	- `NOTION_TRADE_JOURNAL_DB_ID`
+	- `NOTION_GOALS_DB_ID`
+	- `NOTION_DISCIPLINE_LOGS_DB_ID`
+	- `NOTION_REPORTS_DB_ID`
+	- `CHANNEL_DAILY_CHECK_IN_ID`
+	- `CHANNEL_TRADE_JOURNAL_ID`
+	- `CHANNEL_WEEKLY_GOALS_ID`
+	- `CHANNEL_DISCIPLINE_LOG_ID`
+	- `CHANNEL_PROGRESS_TRACKER_ID`
+	- `CHANNEL_REPORTS_ID`
 4. Install dependencies with `npm install`.
 5. Create Notion databases with `npm run notion:bootstrap`.
 6. Copy the printed database IDs into `.env`.
@@ -41,6 +58,7 @@ Required production practices:
 - Give the Notion integration access only to the parent page used by this system.
 - Use one bot process for scheduled jobs to avoid duplicate reports.
 - Back up Notion database exports monthly.
+- Railway must have the same required environment variables as `.env`; if any are missing, the bot will exit during startup validation.
 
 ## Architecture
 

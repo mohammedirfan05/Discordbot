@@ -7,6 +7,17 @@ export function todayIso(now = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+// Returns YYYY-MM-DD in the configured timezone (e.g. Asia/Kolkata)
+// Uses en-CA locale which reliably formats as YYYY-MM-DD
+export function todayInTimezone(timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+}
+
 export function currentWeekRange(now = new Date()): DateRange {
   const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const day = date.getUTCDay() || 7;
