@@ -2,16 +2,16 @@ import type { DateRange } from "../domain/dateRange.js";
 import type { ReportType, TraderStats } from "../domain/types.js";
 import type { AccountabilityService } from "./accountabilityService.js";
 import { traderScore } from "./accountabilityService.js";
-import type { NotionRepositories } from "../infrastructure/notion/repositories.js";
+import type { SupabaseRepositories } from "../infrastructure/supabase/repositories.js";
 
 export class ReportService {
   constructor(
     private readonly accountability: AccountabilityService,
-    private readonly repo: NotionRepositories
+    private readonly repo: SupabaseRepositories
   ) {}
 
   async generate(type: ReportType, range: DateRange): Promise<string> {
-    const stats = await this.accountability.leaderboard(range);
+    const stats   = await this.accountability.leaderboard(range);
     const content = formatReport(type, range, stats);
     await this.repo.createReport(type, range.start, range.end, content);
     return content;
@@ -31,7 +31,7 @@ export function formatStats(stats: TraderStats): string {
 }
 
 function formatReport(type: ReportType, range: DateRange, stats: TraderStats[]): string {
-  const header = `**${type} Trading Accountability Report**\nPeriod: ${range.start} to ${range.end}`;
+  const header = `**${type} Trading Accountability Report**\nPeriod: ${range.start} → ${range.end}`;
   if (stats.length === 0) return `${header}\n\nNo active traders found.`;
 
   const lines = stats.map((item, index) => [
@@ -41,4 +41,3 @@ function formatReport(type: ReportType, range: DateRange, stats: TraderStats[]):
 
   return `${header}\n\n${lines.join("\n\n")}`;
 }
-

@@ -1,337 +1,222 @@
-# Discord + Notion Bot Usage Guide
+# TradeOS — Usage Guide
 
-This project is a Discord bot that records trading accountability data in Notion and posts reports back into Discord. You use Discord slash commands for day-to-day work. Notion is the storage layer behind the scenes.
+This is a Discord bot for trading accountability groups. All day-to-day work happens inside Discord using slash commands. **Supabase (PostgreSQL)** is the database — you never need to open it directly.
+
+---
 
 ## What the bot does
 
-- Saves daily check-ins, trades, goals, and discipline logs to Notion.
-- Generates current week, month, and leaderboard style reports.
-- Posts scheduled reports to the configured Discord reports channel.
-- Lets you work entirely from Discord after the one-time setup is done.
+- Records daily check-ins, trades, goals, and discipline logs in Supabase.
+- Calculates and displays personal stats (discipline score, win rate, RR, P&L).
+- Posts scheduled daily/weekly/monthly reports to your reports channel.
+- Sends morning and evening reminders to users who haven't logged yet.
+- Shows a weekly leaderboard across all active traders.
 
-## Important note about startup
+---
 
-- `npm run register:commands` only needs Discord settings.
-- `npm run dev` needs both Discord settings and Notion settings.
-- If `NOTION_TOKEN` is missing, the bot cannot start in development mode because it connects to Notion at boot.
+## One-time setup
 
-## Step-by-step setup
-
-### 1. Install dependencies
-
-Run:
+### Step 1 — Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Create your `.env` file
+### Step 2 — Create your Supabase project
 
-Copy `.env.example` to `.env`, then fill in the values.
+1. Go to [supabase.com](https://supabase.com) → **New Project** (free tier is enough).
+2. Once created, go to **SQL Editor** → **New query**.
+3. Open `supabase/schema.sql` from this project and paste the entire contents into the editor.
+4. Click **Run**. This creates all 6 tables.
+5. Go to **Settings → API** and copy:
+   - **Project URL** → this is your `SUPABASE_URL`
+   - **service_role** secret key → this is your `SUPABASE_SERVICE_ROLE_KEY`
 
-You must set these first:
+> ⚠️ Use the `service_role` key, not the `anon` key. The service role key has full access and is safe to use server-side only. Keep it secret.
 
-- `DISCORD_TOKEN`
-- `DISCORD_CLIENT_ID`
-- `DISCORD_GUILD_ID`
-- `NOTION_TOKEN`
-- `NOTION_PARENT_PAGE_ID`
+### Step 3 — Create your Discord application
 
-You also need the Discord channel IDs and Notion database IDs before the bot can fully work.
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application**.
+2. Go to **Bot** → **Add Bot** → copy the token → `DISCORD_TOKEN`.
+3. Copy the **Application ID** → `DISCORD_CLIENT_ID`.
+4. Go to your Discord server → right-click the server name → **Copy Server ID** → `DISCORD_GUILD_ID`.
+5. Invite the bot using OAuth2 with scopes: `bot` + `applications.commands`.  
+   Required permissions: **Send Messages**, **Embed Links**, **Read Message History**, **Use Slash Commands**.
 
-### 3. Create the Notion databases
-
-Once `NOTION_TOKEN` and `NOTION_PARENT_PAGE_ID` are set, run:
+### Step 4 — Set up your .env file
 
 ```bash
-npm run notion:bootstrap
+cp .env.example .env
 ```
 
-This creates the required Notion databases and prints the IDs you need to copy into `.env`.
+Fill in every value. Required variables:
 
-The script creates these databases:
+| Variable | Where to find it |
+|----------|-----------------|
+| `DISCORD_TOKEN` | Discord Developer Portal → Bot |
+| `DISCORD_CLIENT_ID` | Discord Developer Portal → General Information |
+| `DISCORD_GUILD_ID` | Discord → right-click server → Copy ID |
+| `SUPABASE_URL` | Supabase → Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API → service_role |
+| `CHANNEL_DAILY_CHECK_IN_ID` | Discord → right-click channel → Copy ID |
+| `CHANNEL_TRADE_JOURNAL_ID` | Discord → right-click channel → Copy ID |
+| `CHANNEL_WEEKLY_GOALS_ID` | Discord → right-click channel → Copy ID |
+| `CHANNEL_DISCIPLINE_LOG_ID` | Discord → right-click channel → Copy ID |
+| `CHANNEL_PROGRESS_TRACKER_ID` | Discord → right-click channel → Copy ID |
+| `CHANNEL_REPORTS_ID` | Discord → right-click channel → Copy ID |
 
-- `Users`
-- `Daily Checkins`
-- `Trade Journal`
-- `Goals`
-- `Discipline Logs`
-- `Reports`
+Optional:
 
-### 4. Paste the printed database IDs into `.env`
+| Variable | Purpose |
+|----------|---------|
+| `CHANNEL_REMINDERS_ID` | Enable morning + evening reminder pings |
+| `TIMEZONE` | Your timezone (default: `Asia/Kolkata`) |
 
-After bootstrap finishes, copy the printed values into your `.env` file:
+To copy channel IDs in Discord: **User Settings → Advanced → Developer Mode ON** → right-click any channel → **Copy Channel ID**.
 
-- `NOTION_USERS_DB_ID`
-- `NOTION_DAILY_CHECKINS_DB_ID`
-- `NOTION_TRADE_JOURNAL_DB_ID`
-- `NOTION_GOALS_DB_ID`
-- `NOTION_DISCIPLINE_LOGS_DB_ID`
-- `NOTION_REPORTS_DB_ID`
+### Step 5 — Verify Supabase setup
 
-### 5. Make sure the Discord channel IDs are correct
+```bash
+npm run supabase:setup
+```
 
-These channels control where users run the commands and where reports are posted:
+This checks that all 6 tables exist. If any are missing, re-run the SQL schema.
 
-- `CHANNEL_DAILY_CHECK_IN_ID`
-- `CHANNEL_TRADE_JOURNAL_ID`
-- `CHANNEL_WEEKLY_GOALS_ID`
-- `CHANNEL_DISCIPLINE_LOG_ID`
-- `CHANNEL_PROGRESS_TRACKER_ID`
-- `CHANNEL_REPORTS_ID`
-
-Optional channels:
-
-- `CHANNEL_GENERAL_ID`
-- `CHANNEL_RESOURCES_ID`
-
-### 6. Register the slash commands
-
-Run:
+### Step 6 — Register slash commands
 
 ```bash
 npm run register:commands
 ```
 
-This publishes the Discord slash commands to your guild.
+Run this once (and again whenever command definitions change). Commands appear in Discord within a few seconds.
 
-You only need to rerun this when command definitions change.
-
-### 7. Start the bot
-
-Run:
+### Step 7 — Start the bot
 
 ```bash
 npm run dev
 ```
 
-If startup is successful, the bot will log in to Discord and begin listening for interactions and scheduled jobs.
+The bot is now live. You should see `Discord bot ready` in the logs.
 
-## How to use the bot in Discord
+---
 
-Use the slash commands in the matching channels.
+## Command reference
 
-### Daily check-in
+### `/checkin` — `#daily-check-in`
 
-Use `/checkin` in `#daily-check-in`.
+**Two-step flow:**
+1. Run `/checkin mood:8 sleep_hours:7 energy:8 focus:9`
+2. A private message appears with your numbers and an **"Add Trading Plan"** button.
+3. Click the button → a popup appears where you type your plan.
+4. Submit → your full check-in is saved and posted publicly in the channel.
 
-Required fields:
+### `/trade` — `#trade-journal`
 
-- `mood` from 1 to 10
-- `sleep_hours` as a number
-- `energy` from 1 to 10
-- `focus` from 1 to 10
-- `trading_plan` as text
-
-Example:
-
-```text
-/checkin mood:8 sleep_hours:7.5 energy:7 focus:8 trading_plan:Only A+ setups today
+```
+/trade pair:MNQ direction:Long entry:21000 stop_loss:20950 take_profit:21100 risk_percent:1 result:Win
 ```
 
-### Trade journal entry
+- `pair` is a dropdown: **MNQ** (Micro Nasdaq) or **ES** (Micro E-mini S&P 500)
+- `result` choices: Win, Loss, Break Even, Open
+- `screenshot_url` is optional — paste a chart image URL and it embeds in the reply
 
-Use `/trade` in `#trade-journal`.
+The bot automatically calculates your **RR** and **performance R** from the prices you enter.
 
-Required fields:
+### `/goal` — `#weekly-goals`
 
-- `pair`
-- `direction` as `Long` or `Short`
-- `entry`
-- `stop_loss`
-- `take_profit`
-- `risk_percent`
-- `result` as `Win`, `Loss`, `BE`, or `Open`
-
-Optional:
-
-- `screenshot_url`
-
-Example:
-
-```text
-/trade pair:EURUSD direction:Long entry:1.0840 stop_loss:1.0815 take_profit:1.0890 risk_percent:1 result:Win screenshot_url:https://example.com/trade.png
+```
+/goal goal:"No revenge trades this week" category:Psychology deadline:2026-06-15
 ```
 
-### Weekly goal
+- `category` is a dropdown: Execution, Risk Management, Psychology, Analysis, Journaling, Other
+- `deadline` must be `YYYY-MM-DD` format
+- The bot shows a **Goal ID** in the confirmation — you don't need to remember it, autocomplete finds it
 
-Use `/goal` in `#weekly-goals`.
+### `/goal-status` — `#weekly-goals`
 
-Required fields:
-
-- `goal`
-- `category`
-- `deadline` in `YYYY-MM-DD` format
-
-Example:
-
-```text
-/goal goal:Take 3 high-quality setups category:Execution deadline:2026-06-12
+```
+/goal-status goal_id:[start typing your goal name] status:Completed
 ```
 
-### Update goal status
+The `goal_id` field has **autocomplete** — just start typing any words from your goal and select it from the dropdown. No need to copy IDs manually.
 
-Use `/goal-status` in `#weekly-goals`.
+### `/discipline` — `#discipline-log`
 
-You need the `goal_id` returned by `/goal`.
-
-Example:
-
-```text
-/goal-status goal_id:abc123 status:Completed
+```
+/discipline followed_plan:True revenge_traded:False overtraded:False broke_risk_rules:False
 ```
 
-### Discipline log
+**Scoring:**
+- Followed plan: +25
+- No revenge trading: +25
+- No overtrading: +25
+- No broken risk rules: +25
+- **Max: 100/100**
 
-Use `/discipline` in `#discipline-log`.
+### `/stats` — `#progress-tracker`
 
-Required booleans:
+Quick 3-metric snapshot for this week: **Discipline %**, **Win Rate %**, **Net P&L (R)**.
 
-- `followed_plan`
-- `revenge_traded`
-- `overtraded`
-- `broke_risk_rules`
+### `/my-week` — `#progress-tracker`
 
-Example:
+Full breakdown: discipline, win rate, average RR, net performance, goals completed, check-in consistency, total trades.
 
-```text
-/discipline followed_plan:true revenge_traded:false overtraded:false broke_risk_rules:false
+### `/my-month` — `#progress-tracker`
+
+Same as `/my-week` but for the current calendar month.
+
+### `/leaderboard` — `#progress-tracker`
+
+Weekly ranking of all active traders. Score is a weighted composite of discipline, win rate, consistency, performance, and goals.
+
+### `/help` — anywhere
+
+Shows all commands and their required channels. Only visible to you (ephemeral).
+
+---
+
+## Scheduled reports & reminders
+
+| Time | Job |
+|------|-----|
+| 9am Mon–Fri | Mentions users who haven't checked in yet (in `#reminders`) |
+| 6pm Mon–Fri | Mentions users who haven't logged discipline yet (in `#reminders`) |
+| 10pm daily | Daily report posted to `#reports` |
+| 8pm every Sunday | Weekly report |
+| 8pm on the 1st | Monthly report |
+
+All times respect your `TIMEZONE` env var (default: `Asia/Kolkata`).  
+Reminders only fire if `CHANNEL_REMINDERS_ID` is set.
+
+---
+
+## Hosting (24/7)
+
+For always-on hosting, use **Railway**, **Fly.io**, or **Koyeb** (all have free tiers).
+
+**Railway (easiest):**
+1. Push code to GitHub.
+2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub.
+3. Add all env vars in the **Variables** tab.
+4. Railway auto-deploys on every push. Done.
+
+Production build:
+
+```bash
+npm ci
+npm run build
+npm start
 ```
 
-### Reports and stats
-
-Use these in `#progress-tracker`:
-
-- `/stats`
-- `/my-week`
-- `/my-month`
-- `/leaderboard`
-
-## Recommended daily workflow
-
-1. Open Discord.
-2. Run `/checkin` in `#daily-check-in` before trading.
-3. Log each trade with `/trade` in `#trade-journal`.
-4. Use `/discipline` at the end of the session.
-5. Review progress with `/stats`, `/my-week`, or `/my-month`.
-
-## Recommended weekly workflow
-
-1. Create one or more goals with `/goal`.
-2. Update them during the week with `/goal-status`.
-3. Review the leaderboard and weekly report in `#progress-tracker`.
-4. Keep `NOTION_REPORTS_DB_ID` and `CHANNEL_REPORTS_ID` correct so scheduled reports post properly.
-
-## Hosting the bot
-
-If you do not want to keep `npm run dev` open on your own computer, use a cloud host that supports long-running Node.js processes.
-
-### Recommended option: Railway
-
-Railway is the simplest cloud option for this bot if you want GitHub-based deployment and easy environment variable management.
-
-Why it fits this project:
-
-- Easy deployment from GitHub.
-- Works well with Node.js apps.
-- Lets you manage environment variables in the UI.
-- Redeploys automatically when you push to GitHub.
-- Good fit for always-on Discord bots.
-
-Typical workflow:
-
-```mermaid
-flowchart TD
-	A[GitHub repo] --> B[Railway project]
-	B --> C[Discord bot process]
-	B --> D[Notion integration]
-```
-
-Suggested Railway setup:
-
-1. Push this repo to GitHub.
-2. Create a new Railway project from the GitHub repository.
-3. Add all required environment variables in Railway. The app will not start unless all of these are present:
-	 - `DISCORD_TOKEN`
-	 - `DISCORD_CLIENT_ID`
-	 - `DISCORD_GUILD_ID`
-	 - `NOTION_TOKEN`
-	 - `NOTION_PARENT_PAGE_ID`
-	 - `NOTION_USERS_DB_ID`
-	 - `NOTION_DAILY_CHECKINS_DB_ID`
-	 - `NOTION_TRADE_JOURNAL_DB_ID`
-	 - `NOTION_GOALS_DB_ID`
-	 - `NOTION_DISCIPLINE_LOGS_DB_ID`
-	 - `NOTION_REPORTS_DB_ID`
-	 - `CHANNEL_DAILY_CHECK_IN_ID`
-	 - `CHANNEL_TRADE_JOURNAL_ID`
-	 - `CHANNEL_WEEKLY_GOALS_ID`
-	 - `CHANNEL_DISCIPLINE_LOG_ID`
-	 - `CHANNEL_PROGRESS_TRACKER_ID`
-	 - `CHANNEL_REPORTS_ID`
-4. Set the build command to `npm run build` and the start command to `npm start`.
-5. Run `npm run notion:bootstrap` locally once if you still need to create the Notion databases.
-6. Copy the printed Notion database IDs into Railway environment variables.
-7. Run `npm run register:commands` locally or from your deployment workflow after the bot is configured.
-8. Start the Railway deployment and confirm the bot appears online in Discord.
-
-Important hosting rules:
-
-- Run only one live instance, or scheduled reports will duplicate.
-- Never commit `.env` or any real tokens to GitHub.
-- Keep the Notion integration limited to the parent page and required databases.
-- Make sure the Railway service stays awake 24/7 if you want scheduled reports to fire.
-
-### Other options
-
-If you do not want Railway, the remaining practical choices are:
-
-- A home machine or spare mini PC that stays on.
-- A small paid VPS.
-- Fly.io or Koyeb if you are comfortable with their free-tier limits.
+---
 
 ## Troubleshooting
 
-### `NOTION_TOKEN` is missing
-
-- The bot cannot start with `npm run dev` until `NOTION_TOKEN` is set.
-- Add a valid Notion integration token to `.env`.
-
-### Railway exits during startup
-
-- Check that every value listed in the Railway setup section exists in the Railway variables panel.
-- The startup validator prints the exact missing keys to the container logs.
-- If one of the Notion database IDs is missing, rerun `npm run notion:bootstrap` and copy the printed IDs into Railway.
-
-### `npm run register:commands` fails
-
-- Check `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, and `DISCORD_GUILD_ID`.
-- Make sure your Discord application is correct and the bot is invited to the target guild.
-
-### Bot starts but commands do nothing
-
-- Verify the command was registered with `npm run register:commands`.
-- Confirm the bot has permission to read and send messages in the target channels.
-- Make sure the command is being used in the correct channel.
-
-### Notion bootstrap fails
-
-- Confirm `NOTION_TOKEN` and `NOTION_PARENT_PAGE_ID` are set.
-- Make sure the Notion integration has access to the parent page.
-- Rerun `npm run notion:bootstrap` after fixing the env values.
-
-### Reports are not posting
-
-- Check `CHANNEL_REPORTS_ID`.
-- Check that the bot can send messages in that channel.
-- Make sure the process is running continuously, since scheduled reports depend on the bot staying online.
-
-## Short version
-
-If you already have `.env` filled out, the normal flow is:
-
-1. `npm run notion:bootstrap`
-2. Copy the printed Notion database IDs into `.env`
-3. `npm run register:commands`
-4. `npm run dev`
-5. Use the slash commands in Discord
+| Problem | Fix |
+|---------|-----|
+| Bot doesn't respond to commands | Run `npm run register:commands` again and wait 30s |
+| "This command can only be used in #channel" | You're in the wrong channel |
+| Check-in/discipline says "already submitted today" | You already logged today — one per day per user |
+| Stats show 0% everything | No data logged for the current period yet |
+| Bot starts but crashes immediately | Check logs — likely a missing env var |
+| Supabase error on startup | Verify `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are correct |

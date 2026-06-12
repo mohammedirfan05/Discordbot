@@ -11,7 +11,6 @@ export interface ActiveGoal {
 export type ReportType = "Daily" | "Weekly" | "Monthly";
 
 export interface TraderUser {
-  notionId: string;
   discordUserId: string;
   discordUsername: string;
 }

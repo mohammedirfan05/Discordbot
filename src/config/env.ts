@@ -2,33 +2,34 @@ import "dotenv/config";
 import { z } from "zod";
 
 const schema = z.object({
-  DISCORD_TOKEN: z.string().min(1),
+  // ── Discord ──────────────────────────────────────────────────
+  DISCORD_TOKEN:     z.string().min(1),
   DISCORD_CLIENT_ID: z.string().min(1),
-  DISCORD_GUILD_ID: z.string().min(1),
-  NOTION_TOKEN: z.string().min(1),
-  NOTION_PARENT_PAGE_ID: z.string().optional(),
-  NOTION_USERS_DB_ID: z.string().min(1),
-  NOTION_DAILY_CHECKINS_DB_ID: z.string().min(1),
-  NOTION_TRADE_JOURNAL_DB_ID: z.string().min(1),
-  NOTION_GOALS_DB_ID: z.string().min(1),
-  NOTION_DISCIPLINE_LOGS_DB_ID: z.string().min(1),
-  NOTION_REPORTS_DB_ID: z.string().min(1),
-  CHANNEL_GENERAL_ID: z.string().optional(),
-  CHANNEL_RESOURCES_ID: z.string().optional(),
-  CHANNEL_DAILY_CHECK_IN_ID: z.string().min(1),
-  CHANNEL_TRADE_JOURNAL_ID: z.string().min(1),
-  CHANNEL_WEEKLY_GOALS_ID: z.string().min(1),
-  CHANNEL_DISCIPLINE_LOG_ID: z.string().min(1),
+  DISCORD_GUILD_ID:  z.string().min(1),
+
+  // ── Supabase ─────────────────────────────────────────────────
+  SUPABASE_URL:              z.string().url(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+
+  // ── Discord Channel IDs ──────────────────────────────────────
+  CHANNEL_GENERAL_ID:          z.string().optional(),
+  CHANNEL_RESOURCES_ID:        z.string().optional(),
+  CHANNEL_DAILY_CHECK_IN_ID:   z.string().min(1),
+  CHANNEL_TRADE_JOURNAL_ID:    z.string().min(1),
+  CHANNEL_WEEKLY_GOALS_ID:     z.string().min(1),
+  CHANNEL_DISCIPLINE_LOG_ID:   z.string().min(1),
   CHANNEL_PROGRESS_TRACKER_ID: z.string().min(1),
-  CHANNEL_REPORTS_ID: z.string().min(1),
-  CHANNEL_REMINDERS_ID: z.string().optional(),
-  TIMEZONE: z.string().default("Asia/Kolkata"),
-  DAILY_REPORT_CRON: z.string().default("0 22 * * *"),
-  WEEKLY_REPORT_CRON: z.string().default("0 20 * * 0"),
-  MONTHLY_REPORT_CRON: z.string().default("0 20 1 * *"),
-  CHECKIN_REMINDER_CRON: z.string().default("0 9 * * 1-5"),
+  CHANNEL_REPORTS_ID:          z.string().min(1),
+  CHANNEL_REMINDERS_ID:        z.string().optional(),
+
+  // ── Runtime ──────────────────────────────────────────────────
+  TIMEZONE:                 z.string().default("Asia/Kolkata"),
+  DAILY_REPORT_CRON:        z.string().default("0 22 * * *"),
+  WEEKLY_REPORT_CRON:       z.string().default("0 20 * * 0"),
+  MONTHLY_REPORT_CRON:      z.string().default("0 20 1 * *"),
+  CHECKIN_REMINDER_CRON:    z.string().default("0 9 * * 1-5"),
   DISCIPLINE_REMINDER_CRON: z.string().default("0 18 * * 1-5"),
-  LOG_LEVEL: z.string().default("info")
+  LOG_LEVEL:                z.string().default("info")
 });
 
 const result = schema.safeParse(process.env);
@@ -36,17 +37,15 @@ const result = schema.safeParse(process.env);
 if (!result.success) {
   const lines = result.error.issues.map((issue) => {
     const key = issue.path.length > 0 ? issue.path.join(".") : "(root)";
-    return `- ${key}: ${issue.message}`;
+    return `  - ${key}: ${issue.message}`;
   });
-
   throw new Error(
     [
-      "Environment configuration is invalid.",
-      "Set the missing or invalid variables in Railway or your local .env file:",
+      "❌ Environment configuration is invalid.",
+      "Add the missing variables to your .env file or Railway dashboard:\n",
       ...lines
     ].join("\n")
   );
 }
 
 export const env = result.data;
-

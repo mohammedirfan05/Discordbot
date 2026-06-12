@@ -10,15 +10,15 @@ import type {
   TraderStats,
   TraderUser
 } from "../domain/types.js";
-import type { NotionRepositories } from "../infrastructure/notion/repositories.js";
+import type { SupabaseRepositories } from "../infrastructure/supabase/repositories.js";
 
 export class AccountabilityService {
-  constructor(private readonly repo: NotionRepositories) {}
+  constructor(private readonly repo: SupabaseRepositories) {}
 
   submitCheckin(input: DailyCheckinInput): Promise<void> {
-    validateScale("Mood", input.mood);
+    validateScale("Mood",   input.mood);
     validateScale("Energy", input.energy);
-    validateScale("Focus", input.focus);
+    validateScale("Focus",  input.focus);
     if (input.sleepHours < 0 || input.sleepHours > 24) {
       throw new Error("Sleep hours must be between 0 and 24.");
     }
@@ -50,47 +50,33 @@ export class AccountabilityService {
       this.repo.countCompletedGoals(discordUserId, range.start, range.end),
       this.repo.countCheckins(discordUserId, range.start, range.end)
     ]);
-
-    return buildStats({
-      discordUserId,
-      trades,
-      disciplineLogs,
-      completedGoals: goalsCompleted,
-      checkinCount,
-      range
-    });
+    return buildStats({ discordUserId, trades, disciplineLogs, completedGoals: goalsCompleted, checkinCount, range });
   }
 
   async leaderboard(range: DateRange): Promise<TraderStats[]> {
     const users = await this.repo.listUsers();
-    const stats = await Promise.all(users.map((user) => this.statsForUser(user.discordUserId, range)));
+    const stats = await Promise.all(users.map(u => this.statsForUser(u.discordUserId, range)));
     return stats.sort((a, b) => traderScore(b) - traderScore(a));
   }
-
-  // ── New helpers for autocomplete + reminders ──────────────────────────────
 
   listActiveGoals(discordUserId: string): Promise<ActiveGoal[]> {
     return this.repo.listActiveGoals(discordUserId);
   }
 
   async getUsersMissingCheckin(date: string): Promise<TraderUser[]> {
-    const users = await this.repo.listUsers();
-    const missing: TraderUser[] = [];
-    for (const user of users) {
-      const checkin = await this.repo.findDailyCheckin(user.discordUserId, date);
-      if (!checkin) missing.push(user);
-    }
-    return missing;
+    const users  = await this.repo.listUsers();
+    const checks = await Promise.all(
+      users.map(u => this.repo.findDailyCheckin(u.discordUserId, date))
+    );
+    return users.filter((_, i) => !checks[i]);
   }
 
   async getUsersMissingDiscipline(date: string): Promise<TraderUser[]> {
-    const users = await this.repo.listUsers();
-    const missing: TraderUser[] = [];
-    for (const user of users) {
-      const log = await this.repo.findDisciplineLog(user.discordUserId, date);
-      if (!log) missing.push(user);
-    }
-    return missing;
+    const users  = await this.repo.listUsers();
+    const checks = await Promise.all(
+      users.map(u => this.repo.findDisciplineLog(u.discordUserId, date))
+    );
+    return users.filter((_, i) => !checks[i]);
   }
 }
 
@@ -127,11 +113,8 @@ function validateTrade(input: TradeInput): void {
     }
   }
   if (input.screenshotUrl) {
-    try {
-      new URL(input.screenshotUrl);
-    } catch {
-      throw new Error("Screenshot URL must be a valid web address (e.g., https://...).");
-    }
+    try { new URL(input.screenshotUrl); }
+    catch { throw new Error("Screenshot URL must be a valid web address (e.g., https://...)."); }
   }
 }
 

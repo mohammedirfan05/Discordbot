@@ -1,74 +1,117 @@
-# Discord + Notion Trading Accountability System
+# TradeOS — Discord Trading Accountability Bot
 
-Discord is the primary interface. Notion is the backend database. Traders use slash commands in Discord; they never need to open Notion.
+A Discord bot for trading groups that enforces daily accountability through structured check-ins, trade journaling, goal tracking, and discipline scoring. Built on **Discord.js v14** and **Supabase (PostgreSQL)**.
+
+---
 
 ## Commands
 
-- `/checkin mood sleep_hours energy focus trading_plan` in `#daily-check-in`
-- `/trade pair direction entry stop_loss take_profit risk_percent result screenshot_url` in `#trade-journal`
-- `/goal goal category deadline` in `#weekly-goals`
-- `/goal-status goal_id status` in `#weekly-goals`
-- `/discipline followed_plan revenge_traded overtraded broke_risk_rules` in `#discipline-log`
-- `/stats`, `/my-week`, `/my-month`, `/leaderboard` in `#progress-tracker`
+| Command | Channel | Description |
+|---------|---------|-------------|
+| `/checkin` | `#daily-check-in` | Two-step check-in: numbers first, trading plan in a popup modal |
+| `/trade` | `#trade-journal` | Log a trade — entry, SL, TP, risk, result |
+| `/goal` | `#weekly-goals` | Create a weekly goal with category and deadline |
+| `/goal-status` | `#weekly-goals` | Update goal progress (autocomplete on goal name) |
+| `/discipline` | `#discipline-log` | End-of-day rule check — 25 pts per rule kept |
+| `/stats` | `#progress-tracker` | Quick 3-metric snapshot (discipline / win rate / net P&L) |
+| `/my-week` | `#progress-tracker` | Full 7-metric weekly breakdown |
+| `/my-month` | `#progress-tracker` | Full 7-metric monthly breakdown |
+| `/leaderboard` | `#progress-tracker` | Weekly group ranking |
+| `/help` | anywhere | Shows all commands and required channels (ephemeral) |
+
+---
 
 ## Setup
 
-1. Create a Discord application and bot, then invite it with `applications.commands`, `bot`, `Send Messages`, `Read Message History`, and `Use Slash Commands`.
-2. Create a Notion integration and grant it access to the parent page where databases should be created.
-3. Copy `.env.example` to `.env` and fill in every required value:
-	- `DISCORD_TOKEN`
-	- `DISCORD_CLIENT_ID`
-	- `DISCORD_GUILD_ID`
-	- `NOTION_TOKEN`
-	- `NOTION_PARENT_PAGE_ID`
-	- `NOTION_USERS_DB_ID`
-	- `NOTION_DAILY_CHECKINS_DB_ID`
-	- `NOTION_TRADE_JOURNAL_DB_ID`
-	- `NOTION_GOALS_DB_ID`
-	- `NOTION_DISCIPLINE_LOGS_DB_ID`
-	- `NOTION_REPORTS_DB_ID`
-	- `CHANNEL_DAILY_CHECK_IN_ID`
-	- `CHANNEL_TRADE_JOURNAL_ID`
-	- `CHANNEL_WEEKLY_GOALS_ID`
-	- `CHANNEL_DISCIPLINE_LOG_ID`
-	- `CHANNEL_PROGRESS_TRACKER_ID`
-	- `CHANNEL_REPORTS_ID`
-4. Install dependencies with `npm install`.
-5. Create Notion databases with `npm run notion:bootstrap`.
-6. Copy the printed database IDs into `.env`.
-7. Register Discord slash commands with `npm run register:commands`.
-8. Start the bot with `npm run dev`.
+### 1. Supabase (database)
 
-## Production
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Go to **SQL Editor** → **New query** → paste the contents of [`supabase/schema.sql`](./supabase/schema.sql) → **Run**.
+3. Go to **Settings → API** and copy:
+   - **Project URL** → `SUPABASE_URL`
+   - **service_role** key (secret) → `SUPABASE_SERVICE_ROLE_KEY`
 
-Build and run:
+### 2. Discord
+
+1. Create an application at [discord.com/developers](https://discord.com/developers/applications).
+2. Add a Bot → copy the token → `DISCORD_TOKEN`.
+3. Copy the Application ID → `DISCORD_CLIENT_ID`.
+4. Invite the bot to your server with scopes: `bot`, `applications.commands`.  
+   Permissions: **Send Messages**, **Embed Links**, **Read Message History**, **Use Slash Commands**.
+5. Copy your server ID → `DISCORD_GUILD_ID`.
+6. Copy each accountability channel's ID into the matching `CHANNEL_*` variable.
+
+### 3. Environment
+
+```bash
+cp .env.example .env
+# Fill in every value in .env
+```
+
+### 4. Install & run
+
+```bash
+npm install
+
+# Verify Supabase tables were created correctly
+npm run supabase:setup
+
+# Register slash commands with Discord
+npm run register:commands
+
+# Start the bot
+npm run dev
+```
+
+---
+
+## Production (Railway / Fly.io / Koyeb)
 
 ```bash
 npm ci
 npm run build
-npm run register:commands
+npm run register:commands   # run once before first deploy
 npm start
 ```
 
-Run it as a long-lived process with PM2, systemd, Docker, Railway, Render, Fly.io, or another Node host. The process must stay online for scheduled reports.
+Set all `.env` variables in your hosting platform's environment dashboard. The process must stay alive 24/7 for scheduled reports and reminders.
 
-Required production practices:
+**Railway** (recommended): connect your GitHub repo, add env vars in the Variables tab, done.
 
-- Keep `.env` out of git.
-- Give the Notion integration access only to the parent page used by this system.
-- Use one bot process for scheduled jobs to avoid duplicate reports.
-- Back up Notion database exports monthly.
-- Railway must have the same required environment variables as `.env`; if any are missing, the bot will exit during startup validation.
+---
 
 ## Architecture
 
-The app uses clean boundaries:
+```
+src/
+├── config/        env validation (Zod), logger
+├── domain/        pure types + calculation logic (metrics, date ranges)
+├── application/   use-case services (AccountabilityService, ReportService)
+├── infrastructure/
+│   └── supabase/  database client, typed repository, DB type definitions
+├── discord/       slash command definitions, interaction handler, bot client
+└── jobs/          cron schedulers (reports + reminders)
 
-- `src/domain`: typed entities and calculations.
-- `src/application`: use-case services and report generation.
-- `src/infrastructure/notion`: persistence adapters.
-- `src/discord`: slash command definitions and interaction handling.
-- `src/jobs`: scheduled daily, weekly, and monthly reports.
-- `src/scripts`: one-time setup automation.
+supabase/
+└── schema.sql     PostgreSQL schema — run this once to set up the DB
+```
 
-See `docs/notion-schema.md` for database properties, relations, and rollups.
+**Key design decisions:**
+- The repository layer (`SupabaseRepositories`) is the only place that touches the database.
+- Domain logic (RR calculation, discipline scoring, stats aggregation) lives in pure functions under `src/domain/` — no DB dependency.
+- Swapping the database again only requires replacing `src/infrastructure/supabase/`.
+
+---
+
+## Scheduled Jobs
+
+| Job | Default schedule | Description |
+|-----|-----------------|-------------|
+| Daily report | 10pm every day | Posts all-user stats to `#reports` |
+| Weekly report | 8pm every Sunday | Weekly leaderboard summary |
+| Monthly report | 8pm on the 1st | Monthly leaderboard summary |
+| Check-in reminder | 9am Mon–Fri | Mentions users with no check-in today |
+| Discipline reminder | 6pm Mon–Fri | Mentions users with no discipline log today |
+
+Reminder jobs only run if `CHANNEL_REMINDERS_ID` is set in your environment.  
+All schedules respect the configured `TIMEZONE` (default: `Asia/Kolkata`).
