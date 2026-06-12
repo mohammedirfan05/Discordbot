@@ -88,3 +88,19 @@ CREATE INDEX IF NOT EXISTS idx_daily_checkins_user_date    ON daily_checkins   (
 CREATE INDEX IF NOT EXISTS idx_trades_user_date            ON trades           (discord_user_id, date);
 CREATE INDEX IF NOT EXISTS idx_goals_user_status           ON goals            (discord_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_discipline_logs_user_date   ON discipline_logs  (discord_user_id, date);
+
+-- ── Learning Sessions ──────────────────────────────────────────
+-- An active session has ended_at = NULL.
+-- Calling /learn stop sets ended_at and duration_minutes.
+CREATE TABLE IF NOT EXISTS learning_sessions (
+  id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  discord_user_id   TEXT        NOT NULL REFERENCES users(discord_user_id) ON DELETE CASCADE,
+  topic             TEXT,
+  started_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at          TIMESTAMPTZ,
+  duration_minutes  INTEGER,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_learning_sessions_user ON learning_sessions (discord_user_id, started_at DESC);
+

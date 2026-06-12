@@ -6,6 +6,8 @@ import type {
   DisciplineRecord,
   GoalInput,
   GoalStatus,
+  LearningSession,
+  LearningStats,
   TradeInput,
   TradeRecord,
   TraderUser
@@ -83,6 +85,18 @@ export class SupabaseRepositories {
     return count ?? 0;
   }
 
+  /** Returns all check-in dates since `since` (YYYY-MM-DD), newest first. */
+  async getCheckinDates(discordUserId: string, since: string): Promise<string[]> {
+    const { data, error } = await this.db
+      .from("daily_checkins")
+      .select("date")
+      .eq("discord_user_id", discordUserId)
+      .gte("date", since)
+      .order("date", { ascending: false });
+    if (error) throw new Error(error.message);
+    return ((data as any[]) ?? []).map(r => r.date as string);
+  }
+
   // ── Trade Journal ────────────────────────────────────────────────────────────
 
   async createTrade(input: TradeInput): Promise<TradeRecord> {
@@ -111,9 +125,13 @@ export class SupabaseRepositories {
       .eq("discord_user_id", discordUserId)
       .gte("date", start)
       .lte("date", end)
-      .order("date", { ascending: true });
+      .order("date", { ascending: false });
     if (error) throw new Error(error.message);
-    return ((data as any[]) ?? []).map(r => {
+    return this.mapTrades((data as any[]) ?? []);
+  }
+
+  private mapTrades(rows: any[]): TradeRecord[] {
+    return rows.map(r => {
       let rr = 0;
       try { rr = calculateRr(r.entry, r.stop_loss, r.take_profit); } catch { /* SL === entry */ }
       const result = r.result as TradeRecord["result"];
@@ -155,7 +173,6 @@ export class SupabaseRepositories {
   async updateGoalStatus(discordUserId: string, goalId: string, nextStatus: GoalStatus): Promise<void> {
     const update: Record<string, unknown> = { status: nextStatus };
     if (nextStatus === "Completed") update["completed_at"] = new Date().toISOString();
-
     const { error, data } = await this.db
       .from("goals")
       .update(update)
@@ -251,15 +268,111 @@ export class SupabaseRepositories {
     });
   }
 
+  /** Returns all discipline log dates since `since`, newest first. */
+  async getDisciplineDates(discordUserId: string, since: string): Promise<string[]> {
+    const { data, error } = await this.db
+      .from("discipline_logs")
+      .select("date")
+      .eq("discord_user_id", discordUserId)
+      .gte("date", since)
+      .order("date", { ascending: false });
+    if (error) throw new Error(error.message);
+    return ((data as any[]) ?? []).map(r => r.date as string);
+  }
+
   // ── Reports ──────────────────────────────────────────────────────────────────
 
   async createReport(type: string, start: string, end: string, content: string): Promise<void> {
     const { error } = await this.db.from("reports").insert({
-      type,
-      period_start: start,
-      period_end:   end,
-      content
+      type, period_start: start, period_end: end, content
     });
     if (error) throw new Error(error.message);
+  }
+
+  // ── Learning Sessions ─────────────────────────────────────────────────────────
+
+  async startLearningSession(discordUserId: string, discordUsername: string, topic?: string): Promise<string> {
+    await this.ensureUser(discordUserId, discordUsername);
+
+    // Only one active session per user at a time
+    const active = await this.findActiveLearningSession(discordUserId);
+    if (active) {
+      throw new Error(
+        `You already have an active study session${active.topic ? ` on **${active.topic}**` : ""}. Use \`/learn stop\` first.`
+      );
+    }
+
+    // Use plain array result to avoid .single() URL-construction conflict in Supabase JS v2
+    const { data, error } = await this.db
+      .from("learning_sessions")
+      .insert({ discord_user_id: discordUserId, topic: topic ?? null })
+      .select("id");
+    if (error) throw new Error(error.message);
+    const id = ((data as any[])?.[0]?.id as string | undefined);
+    if (!id) throw new Error("Failed to create learning session.");
+    return id;
+  }
+
+  async stopLearningSession(discordUserId: string): Promise<LearningSession> {
+    const active = await this.findActiveLearningSession(discordUserId);
+    if (!active) {
+      throw new Error("You don't have an active study session. Start one with `/learn start`.");
+    }
+
+    const now             = new Date();
+    const startedAt       = new Date(active.startedAt);
+    const durationMinutes = Math.max(1, Math.round((now.getTime() - startedAt.getTime()) / 60_000));
+
+    const { error } = await this.db
+      .from("learning_sessions")
+      .update({ ended_at: now.toISOString(), duration_minutes: durationMinutes })
+      .eq("id", active.id);
+    if (error) throw new Error(error.message);
+
+    return { ...active, endedAt: now.toISOString(), durationMinutes };
+  }
+
+  async findActiveLearningSession(discordUserId: string): Promise<LearningSession | null> {
+    // Use plain .limit(1) array result — chaining .limit() + .maybeSingle() causes
+    // an "Invalid path" URL error in Supabase JS v2.
+    const { data, error } = await this.db
+      .from("learning_sessions")
+      .select("id, discord_user_id, topic, started_at, ended_at, duration_minutes")
+      .eq("discord_user_id", discordUserId)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1);
+    if (error) throw new Error(error.message);
+    const r = (data as any[])?.[0];
+    if (!r) return null;
+    return {
+      id:              r.id               as string,
+      discordUserId:   r.discord_user_id  as string,
+      topic:           r.topic            as string | null,
+      startedAt:       r.started_at       as string,
+      endedAt:         r.ended_at         as string | null,
+      durationMinutes: r.duration_minutes as number | null
+    };
+  }
+
+  async getLearningStats(discordUserId: string, weekStart: string): Promise<LearningStats> {
+    const { data, error } = await this.db
+      .from("learning_sessions")
+      .select("duration_minutes, started_at")
+      .eq("discord_user_id", discordUserId)
+      .not("duration_minutes", "is", null);
+    if (error) throw new Error(error.message);
+
+    const rows           = (data as any[]) ?? [];
+    const totalSessions  = rows.length;
+    const totalMinutes   = rows.reduce((s: number, r: any) => s + (r.duration_minutes as number), 0);
+    const thisWeekMins   = rows
+      .filter((r: any) => (r.started_at as string).slice(0, 10) >= weekStart)
+      .reduce((s: number, r: any) => s + (r.duration_minutes as number), 0);
+    const durations      = rows.map((r: any) => r.duration_minutes as number);
+    const longest        = durations.length > 0 ? Math.max(...durations) : 0;
+    const avg            = totalSessions > 0 ? Math.round(totalMinutes / totalSessions) : 0;
+
+    return { totalSessions, totalMinutes, thisWeekMinutes: thisWeekMins, avgSessionMinutes: avg, longestSessionMinutes: longest };
   }
 }

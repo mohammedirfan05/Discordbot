@@ -55,3 +55,47 @@ export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+// ── Streak helpers ────────────────────────────────────────────────────────────
+
+/** Shifts a YYYY-MM-DD date string by `days` (negative = backwards). */
+export function offsetDate(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Returns the length of the active streak ending today or yesterday.
+ * `sortedDesc` must be a deduplicated array of YYYY-MM-DD strings, newest first.
+ */
+export function currentStreak(sortedDesc: string[], today: string): number {
+  if (sortedDesc.length === 0) return 0;
+  const yesterday = offsetDate(today, -1);
+  // Must touch today or yesterday to be "active"
+  if (sortedDesc[0] !== today && sortedDesc[0] !== yesterday) return 0;
+  let streak = 1;
+  for (let i = 1; i < sortedDesc.length; i++) {
+    if (sortedDesc[i] === offsetDate(sortedDesc[i - 1], -1)) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+/** Returns the longest consecutive run in any array of YYYY-MM-DD strings. */
+export function longestStreak(sortedDesc: string[]): number {
+  if (sortedDesc.length === 0) return 0;
+  let best = 1;
+  let cur  = 1;
+  for (let i = 1; i < sortedDesc.length; i++) {
+    if (sortedDesc[i] === offsetDate(sortedDesc[i - 1], -1)) {
+      cur++;
+      if (cur > best) best = cur;
+    } else {
+      cur = 1;
+    }
+  }
+  return best;
+}

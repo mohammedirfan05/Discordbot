@@ -1,6 +1,7 @@
 export type Direction = "Long" | "Short";
 export type TradeResult = "Win" | "Loss" | "BE" | "Open";
 export type GoalStatus = "Not Started" | "In Progress" | "Completed" | "Blocked";
+export type ReportType = "Daily" | "Weekly" | "Monthly";
 
 export interface ActiveGoal {
   goalId: string;
@@ -8,7 +9,6 @@ export interface ActiveGoal {
   status: GoalStatus;
   deadline: string;
 }
-export type ReportType = "Daily" | "Weekly" | "Monthly";
 
 export interface TraderUser {
   discordUserId: string;
@@ -78,3 +78,30 @@ export interface TraderStats {
   checkinConsistency: number;
 }
 
+// ── Learning Sessions ─────────────────────────────────────────────────────────
+
+export interface LearningSession {
+  id: string;
+  discordUserId: string;
+  topic: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMinutes: number | null;
+}
+
+export interface LearningStats {
+  totalSessions: number;
+  totalMinutes: number;
+  thisWeekMinutes: number;
+  avgSessionMinutes: number;
+  longestSessionMinutes: number;
+}
+
+// ── Streaks ───────────────────────────────────────────────────────────────────
+
+export interface StreakData {
+  checkinCurrent: number;
+  checkinBest: number;
+  disciplineCurrent: number;
+  disciplineBest: number;
+}
