@@ -101,6 +101,22 @@ export interface Database {
           generated_at?: string;
         };
       };
+      learning_sessions: {
+        Row: {
+          id: string;
+          discord_user_id: string;
+          topic: string | null;
+          started_at: string;
+          ended_at: string | null;
+          duration_minutes: number | null;
+          created_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["learning_sessions"]["Row"], "id" | "started_at" | "created_at"> & {
+          id?: string;
+          started_at?: string;
+          created_at?: string;
+        };
+      };
     };
   };
 }
