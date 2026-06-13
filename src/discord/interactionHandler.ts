@@ -36,6 +36,9 @@ const C = {
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
+// Max chars we'll put in an embed description (Discord limit = 4096)
+const EMBED_DESC_LIMIT = 3800;
+
 // ── Pending state stores ──────────────────────────────────────────────────────
 
 interface PendingCheckin {
@@ -67,6 +70,11 @@ function formatDuration(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+// Truncate a string to a safe embed description length
+function truncateDesc(text: string): string {
+  return text.length > EMBED_DESC_LIMIT ? text.slice(0, EMBED_DESC_LIMIT - 3) + "…" : text;
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export class InteractionHandler {
@@ -75,13 +83,17 @@ export class InteractionHandler {
   private readonly pendingDiscipline = new Map<string, PendingDiscipline>();
 
   constructor(private readonly service: AccountabilityService) {
-    // Purge stale entries every 5 min to prevent memory leaks
-    setInterval(() => {
+    // Purge stale entries every 5 min — unref'd so it doesn't block process shutdown
+    const timer = setInterval(() => {
       const now = Date.now();
       for (const [k, v] of this.pendingCheckins)   if (v.expiresAt < now) this.pendingCheckins.delete(k);
       for (const [k, v] of this.pendingTrades)     if (v.expiresAt < now) this.pendingTrades.delete(k);
       for (const [k, v] of this.pendingDiscipline) if (v.expiresAt < now) this.pendingDiscipline.delete(k);
     }, 5 * 60 * 1000);
+    // Prevent this timer from keeping the Node process alive after bot.login fails
+    if (typeof timer === "object" && timer !== null && "unref" in timer) {
+      (timer as NodeJS.Timeout).unref();
+    }
   }
 
   // ── Main router ───────────────────────────────────────────────────────────
@@ -117,6 +129,10 @@ export class InteractionHandler {
     }
   }
 
+  // ── Centralised error reply ───────────────────────────────────────────────
+  // Works correctly regardless of whether the interaction has been deferred,
+  // replied to, or updated (button interactions).
+
   private async replyError(
     interaction: ChatInputCommandInteraction | ButtonInteraction | ModalSubmitInteraction,
     error: unknown
@@ -129,7 +145,7 @@ export class InteractionHandler {
       } else {
         await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       }
-    } catch { /* swallow double-reply */ }
+    } catch { /* swallow double-reply edge cases */ }
   }
 
   // ── Check-In — Step 1 ─────────────────────────────────────────────────────
@@ -214,6 +230,7 @@ export class InteractionHandler {
       )
     );
 
+    // showModal() IS the interaction response — no deferReply needed
     await interaction.showModal(modal);
   }
 
@@ -344,13 +361,13 @@ export class InteractionHandler {
       .setAuthor({ name: interaction.user.displayName, iconURL: interaction.user.displayAvatarURL() })
       .setTitle(`📊 ${period === "week" ? "Weekly" : "Monthly"} Report`)
       .addFields(
-        { name: "📋 Discipline",      value: `${s.disciplineScore}%`,   inline: true },
-        { name: "🏆 Win Rate",        value: `${s.winRate}%`,           inline: true },
-        { name: "📈 Avg RR",          value: `1:${s.averageRr}`,        inline: true },
-        { name: "💰 Net Performance", value: `${s.netPerformanceR}R`,   inline: true },
-        { name: "🎯 Goals Done",      value: `${s.goalsCompleted}`,     inline: true },
-        { name: "✅ Check-In Rate",   value: `${s.checkinConsistency}%`,inline: true },
-        { name: "🔢 Total Trades",    value: `${s.totalTrades}`,        inline: true }
+        { name: "📋 Discipline",      value: `${s.disciplineScore}%`,    inline: true },
+        { name: "🏆 Win Rate",        value: `${s.winRate}%`,            inline: true },
+        { name: "📈 Avg RR",          value: `1:${s.averageRr}`,         inline: true },
+        { name: "💰 Net Performance", value: `${s.netPerformanceR}R`,    inline: true },
+        { name: "🎯 Goals Done",      value: `${s.goalsCompleted}`,      inline: true },
+        { name: "✅ Check-In Rate",   value: `${s.checkinConsistency}%`, inline: true },
+        { name: "🔢 Total Trades",    value: `${s.totalTrades}`,         inline: true }
       )
       .setFooter({ text: `${range.start} → ${range.end}` })
       .setTimestamp();
@@ -386,8 +403,8 @@ export class InteractionHandler {
     if (!await requireChannel(interaction, env.CHANNEL_PROGRESS_TRACKER_ID)) return;
     await interaction.deferReply();
 
-    const data = await this.service.getStreaks(interaction.user.id);
-    const bestMax = Math.max(data.checkinBest, data.disciplineBest, 1);
+    const data    = await this.service.getStreaks(interaction.user.id);
+    const bestMax = Math.max(data.checkinBest, data.disciplineBest, 7);
 
     const embed = new EmbedBuilder()
       .setColor(C.streak)
@@ -396,12 +413,12 @@ export class InteractionHandler {
       .addFields(
         {
           name:   "📅 Check-In Streak",
-          value:  `${progressBar(data.checkinCurrent, Math.max(bestMax, 7))} **${data.checkinCurrent}** days active\nBest: **${data.checkinBest}** days`,
+          value:  `${progressBar(data.checkinCurrent, bestMax)} **${data.checkinCurrent}** days active\nBest: **${data.checkinBest}** days`,
           inline: false
         },
         {
           name:   "📋 Discipline Streak",
-          value:  `${progressBar(data.disciplineCurrent, Math.max(bestMax, 7))} **${data.disciplineCurrent}** days active\nBest: **${data.disciplineBest}** days`,
+          value:  `${progressBar(data.disciplineCurrent, bestMax)} **${data.disciplineCurrent}** days active\nBest: **${data.disciplineBest}** days`,
           inline: false
         }
       )
@@ -432,10 +449,10 @@ export class InteractionHandler {
       return;
     }
 
-    const resultEmoji = { Win: "✅", Loss: "❌", BE: "➖", Open: "🔄" };
+    const resultEmoji: Record<string, string> = { Win: "✅", Loss: "❌", BE: "➖", Open: "🔄" };
     const lines = trades.map(t => {
       const emoji = resultEmoji[t.result] ?? "📊";
-      const perf  = t.result === "Win" ? `+${t.rr}R` : t.result === "Loss" ? "-1R" : "0R";
+      const perf  = t.result === "Win" ? `+${t.rr}R` : t.result === "Loss" ? "-1R" : t.result === "BE" ? "±0R" : "Open";
       return `${emoji} **${t.pair}** ${t.direction} · 1:${t.rr} · ${perf} · \`${t.date}\``;
     });
 
@@ -445,13 +462,16 @@ export class InteractionHandler {
     const netR   = trades.reduce((s, t) => s + t.performanceR, 0).toFixed(2);
     const wr     = closed > 0 ? `${Math.round((wins / closed) * 100)}%` : "—";
 
+    // Guard: truncate description if many trades push it over Discord's 4096-char limit
+    const description = truncateDesc(lines.join("\n"));
+
     const embed = new EmbedBuilder()
       .setColor(Number(netR) >= 0 ? 0x2ECC71 : C.error)
       .setAuthor({ name: `${interaction.user.displayName}'s History`, iconURL: interaction.user.displayAvatarURL() })
-      .setTitle(`📜 Last ${days} Days — ${trades.length} trades`)
-      .setDescription(lines.join("\n"))
+      .setTitle(`📜 Last ${days} Days — ${trades.length} trade${trades.length === 1 ? "" : "s"}`)
+      .setDescription(description)
       .addFields(
-        { name: "🏆 Win Rate", value: wr,      inline: true },
+        { name: "🏆 Win Rate", value: wr,          inline: true },
         { name: "✅ Wins",     value: `${wins}`,   inline: true },
         { name: "❌ Losses",   value: `${losses}`, inline: true },
         { name: "💰 Net R",    value: `${netR}R`,  inline: true }
@@ -466,26 +486,29 @@ export class InteractionHandler {
   private async learn(interaction: ChatInputCommandInteraction): Promise<void> {
     const sub = interaction.options.getSubcommand();
     try {
-      if (sub === "start")  return await this.learnStart(interaction);
-      if (sub === "stop")   return await this.learnStop(interaction);
-      if (sub === "stats")  return await this.learnStats(interaction);
+      if (sub === "start") return await this.learnStart(interaction);
+      if (sub === "stop")  return await this.learnStop(interaction);
+      if (sub === "stats") return await this.learnStats(interaction);
     } catch (error) {
       await this.replyError(interaction, error);
     }
   }
 
   private async learnStart(interaction: ChatInputCommandInteraction): Promise<void> {
+    // BUG FIX: defer FIRST — DB call can exceed Discord's 3-second response window
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const topic = interaction.options.getString("topic") ?? undefined;
     await this.service.startLearning(interaction.user.id, interaction.user.username, topic);
 
     const embed = new EmbedBuilder()
       .setColor(C.learn)
       .setTitle("📚 Study Session Started")
-      .setDescription(topic ? `**Topic:** ${topic}` : "Session running — good luck! 💪")
+      .setDescription(topic ? `**Topic:** ${topic}\n\nTimer is running — good luck! 💪` : "Session running — good luck! 💪")
       .setFooter({ text: "Use /learn stop when you're done." })
       .setTimestamp();
 
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: [embed] });
   }
 
   private async learnStop(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -499,8 +522,8 @@ export class InteractionHandler {
       .setAuthor({ name: interaction.user.displayName, iconURL: interaction.user.displayAvatarURL() })
       .setTitle("📚 Study Session Complete!")
       .addFields(
-        { name: "⏱️ Time Spent",  value: `**${formatDuration(mins)}**`,            inline: true },
-        { name: "📖 Topic",        value: session.topic ?? "General studying",       inline: true }
+        { name: "⏱️ Time Spent", value: `**${formatDuration(mins)}**`,       inline: true },
+        { name: "📖 Topic",       value: session.topic ?? "General studying", inline: true }
       )
       .setFooter({ text: mins >= 60 ? "Incredible focus! 🔥" : mins >= 30 ? "Great session! 💪" : "Every minute counts ✅" })
       .setTimestamp();
@@ -510,8 +533,10 @@ export class InteractionHandler {
 
   private async learnStats(interaction: ChatInputCommandInteraction): Promise<void> {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const stats   = await this.service.getLearningStats(interaction.user.id);
-    const active  = await this.service.findActiveLearning(interaction.user.id);
+    const [stats, active] = await Promise.all([
+      this.service.getLearningStats(interaction.user.id),
+      this.service.findActiveLearning(interaction.user.id)
+    ]);
 
     const embed = new EmbedBuilder()
       .setColor(C.learn)
@@ -521,15 +546,19 @@ export class InteractionHandler {
     if (stats.totalSessions === 0 && !active) {
       embed.setDescription("No study sessions yet. Start one with `/learn start`! 📖");
     } else {
-      embed.addFields(
-        { name: "📅 This Week",      value: formatDuration(stats.thisWeekMinutes),     inline: true },
-        { name: "🕐 All-Time Total", value: formatDuration(stats.totalMinutes),        inline: true },
-        { name: "📊 Sessions",       value: `${stats.totalSessions}`,                  inline: true },
-        { name: "⏱️ Avg Session",    value: formatDuration(stats.avgSessionMinutes),   inline: true },
-        { name: "🏆 Longest",        value: formatDuration(stats.longestSessionMinutes), inline: true }
-      );
+      if (stats.totalSessions > 0) {
+        embed.addFields(
+          { name: "📅 This Week",      value: formatDuration(stats.thisWeekMinutes),       inline: true },
+          { name: "🕐 All-Time Total", value: formatDuration(stats.totalMinutes),          inline: true },
+          { name: "📊 Sessions",       value: `${stats.totalSessions}`,                    inline: true },
+          { name: "⏱️ Avg Session",    value: formatDuration(stats.avgSessionMinutes),     inline: true },
+          { name: "🏆 Longest",        value: formatDuration(stats.longestSessionMinutes), inline: true }
+        );
+      } else {
+        embed.setDescription("Your first session is running now! Stop it with `/learn stop` to log it.");
+      }
       if (active) {
-        const elapsed = Math.round((Date.now() - new Date(active.startedAt).getTime()) / 60_000);
+        const elapsed = Math.max(0, Math.round((Date.now() - new Date(active.startedAt).getTime()) / 60_000));
         embed.addFields({
           name:  "🟢 Active Session",
           value: `Running for **${formatDuration(elapsed)}**${active.topic ? ` — *${active.topic}*` : ""}`,
@@ -549,12 +578,12 @@ export class InteractionHandler {
       .setTitle("📚 Bot Command Guide")
       .setDescription("Everything you can do and where to do it.")
       .addFields(
-        { name: "📅 Daily Check-In",      value: `\`/checkin\` → <#${env.CHANNEL_DAILY_CHECK_IN_ID}>\nNumbers first, trading plan in popup.`,                                 inline: false },
-        { name: "📈 Trade Journal",        value: `\`/trade\` → <#${env.CHANNEL_TRADE_JOURNAL_ID}>\nPair/direction/result dropdowns → prices in popup.`,                       inline: false },
-        { name: "🎯 Goals",               value: `\`/goal\` \`/goal-status\` → <#${env.CHANNEL_WEEKLY_GOALS_ID}>\nCreate goals and update progress (autocomplete on name).`,  inline: false },
-        { name: "📋 Discipline Log",       value: `\`/discipline\` → <#${env.CHANNEL_DISCIPLINE_LOG_ID}>\nEnd-of-day review with a confirmation step.`,                        inline: false },
-        { name: "📊 Progress",            value: `\`/stats\` Quick snapshot\n\`/my-week\` Full weekly\n\`/my-month\` Full monthly\n\`/leaderboard\` Group ranking\n\`/streak\` Your streaks 🔥\n\`/history\` Recent trades\n→ <#${env.CHANNEL_PROGRESS_TRACKER_ID}>`, inline: false },
-        { name: "📚 Learning Tracker",    value: `\`/learn start [topic]\` — Start a study session\n\`/learn stop\` — Log your time\n\`/learn stats\` — View your totals\nWorks from any channel.`, inline: false }
+        { name: "📅 Daily Check-In",  value: `\`/checkin\` → <#${env.CHANNEL_DAILY_CHECK_IN_ID}>\nNumbers first, trading plan in popup.`,                                 inline: false },
+        { name: "📈 Trade Journal",   value: `\`/trade\` → <#${env.CHANNEL_TRADE_JOURNAL_ID}>\nPair/direction/result dropdowns → prices in popup.`,                       inline: false },
+        { name: "🎯 Goals",           value: `\`/goal\` \`/goal-status\` → <#${env.CHANNEL_WEEKLY_GOALS_ID}>\nCreate goals and update progress (autocomplete on name).`,  inline: false },
+        { name: "📋 Discipline Log",  value: `\`/discipline\` → <#${env.CHANNEL_DISCIPLINE_LOG_ID}>\nEnd-of-day review with a confirmation step.`,                        inline: false },
+        { name: "📊 Progress",        value: `\`/stats\` Quick snapshot\n\`/my-week\` Full weekly\n\`/my-month\` Full monthly\n\`/leaderboard\` Group ranking\n\`/streak\` Your streaks 🔥\n\`/history\` Recent trades\n→ <#${env.CHANNEL_PROGRESS_TRACKER_ID}>`, inline: false },
+        { name: "📚 Learning Tracker",value: `\`/learn start [topic]\` — Start a study session\n\`/learn stop\` — Log your time\n\`/learn stats\` — View your totals\nWorks from any channel.`, inline: false }
       )
       .setFooter({ text: "Tip: /learn stop posts publicly — great for group accountability!" });
 
@@ -565,9 +594,9 @@ export class InteractionHandler {
 
   private async handleButton(interaction: ButtonInteraction): Promise<void> {
     try {
-      if (interaction.customId === "checkin_plan_btn")  return await this.checkinPlanButton(interaction);
-      if (interaction.customId === "disc_confirm")      return await this.disciplineConfirm(interaction);
-      if (interaction.customId === "disc_cancel")       return await this.disciplineCancel(interaction);
+      if (interaction.customId === "checkin_plan_btn") return await this.checkinPlanButton(interaction);
+      if (interaction.customId === "disc_confirm")     return await this.disciplineConfirm(interaction);
+      if (interaction.customId === "disc_cancel")      return await this.disciplineCancel(interaction);
     } catch (error) {
       await this.replyError(interaction, error);
     }
@@ -598,44 +627,53 @@ export class InteractionHandler {
   private async disciplineConfirm(interaction: ButtonInteraction): Promise<void> {
     const pending = this.pendingDiscipline.get(interaction.user.id);
     if (!pending || Date.now() > pending.expiresAt) {
-      await interaction.update({
-        content: "❌ Session expired. Please run `/discipline` again.",
-        embeds: [], components: []
-      });
+      // update() edits the ephemeral message in-place — correct for button interactions
+      await interaction.update({ content: "❌ Session expired. Please run `/discipline` again.", embeds: [], components: [] });
       return;
     }
     this.pendingDiscipline.delete(interaction.user.id);
 
-    // Acknowledge and update the ephemeral message
-    await interaction.update({ content: "⏳ Saving…", embeds: [], components: [] });
+    // BUG FIX: Use deferUpdate() instead of update() so we can still call channel.send()
+    // and editReply() after the async DB call without "Unknown Webhook" errors.
+    await interaction.deferUpdate();
 
-    const record = await this.service.submitDiscipline({
-      discordUserId:   interaction.user.id,
-      discordUsername: interaction.user.username,
-      date:            todayInTimezone(env.TIMEZONE),
-      ...pending
-    });
+    try {
+      const record = await this.service.submitDiscipline({
+        discordUserId:   interaction.user.id,
+        discordUsername: interaction.user.username,
+        date:            todayInTimezone(env.TIMEZONE),
+        ...pending
+      });
 
-    const embedColor = record.score >= 75 ? 0x2ECC71 : record.score >= 50 ? C.discipline : C.error;
-    const publicEmbed = new EmbedBuilder()
-      .setColor(embedColor)
-      .setAuthor({ name: `${interaction.user.displayName}'s Discipline Log`, iconURL: interaction.user.displayAvatarURL() })
-      .setTitle(`📋 Discipline Log — ${record.score}%`)
-      .addFields(
-        { name: "📌 Followed Plan",    value: pending.followedPlan   ? "✅ Yes (+25)" : "❌ No (0)",   inline: true },
-        { name: "🎭 Revenge Traded",   value: pending.revengeTraded  ? "❌ Yes (0)"  : "✅ No (+25)",  inline: true },
-        { name: "📈 Overtraded",       value: pending.overtraded     ? "❌ Yes (0)"  : "✅ No (+25)",  inline: true },
-        { name: "⚠️ Broke Risk Rules", value: pending.brokeRiskRules ? "❌ Yes (0)"  : "✅ No (+25)",  inline: true }
-      )
-      .setFooter({ text: "Each rule you keep earns 25 points. Perfect score = 100%." })
-      .setTimestamp();
+      const embedColor  = record.score >= 75 ? 0x2ECC71 : record.score >= 50 ? C.discipline : C.error;
+      const publicEmbed = new EmbedBuilder()
+        .setColor(embedColor)
+        .setAuthor({ name: `${interaction.user.displayName}'s Discipline Log`, iconURL: interaction.user.displayAvatarURL() })
+        .setTitle(`📋 Discipline Log — ${record.score}%`)
+        .addFields(
+          { name: "📌 Followed Plan",    value: pending.followedPlan   ? "✅ Yes (+25)" : "❌ No (0)",  inline: true },
+          { name: "🎭 Revenge Traded",   value: pending.revengeTraded  ? "❌ Yes (0)"  : "✅ No (+25)", inline: true },
+          { name: "📈 Overtraded",       value: pending.overtraded     ? "❌ Yes (0)"  : "✅ No (+25)", inline: true },
+          { name: "⚠️ Broke Risk Rules", value: pending.brokeRiskRules ? "❌ Yes (0)"  : "✅ No (+25)", inline: true }
+        )
+        .setFooter({ text: "Each rule you keep earns 25 points. Perfect score = 100%." })
+        .setTimestamp();
 
-    // Post publicly in the channel
-    if (interaction.channel?.isSendable()) {
-      await interaction.channel.send({ embeds: [publicEmbed] });
+      // Post publicly in the channel, then update the private ephemeral to "done"
+      if (interaction.channel?.isSendable()) {
+        await interaction.channel.send({ embeds: [publicEmbed] });
+      }
+      // editReply() after deferUpdate() correctly edits the original ephemeral message
+      await interaction.editReply({ content: "✅ Discipline log saved!", embeds: [], components: [] });
+
+    } catch (error) {
+      // On DB error: show error inside the ephemeral message
+      const message = error instanceof Error ? error.message : "Something went wrong.";
+      await interaction.editReply({
+        content: `❌ ${message}`,
+        embeds: [], components: []
+      });
     }
-    // Update the ephemeral to show "done" (no buttons)
-    await interaction.editReply({ content: "✅ Discipline log saved!", embeds: [], components: [] });
   }
 
   private async disciplineCancel(interaction: ButtonInteraction): Promise<void> {
@@ -689,12 +727,12 @@ export class InteractionHandler {
       .setAuthor({ name: `${interaction.user.displayName}'s Check-In`, iconURL: interaction.user.displayAvatarURL() })
       .setTitle("✅ Daily Check-In Logged")
       .addFields(
-        { name: "😊 Mood",         value: `**${pending.mood}**/10`,       inline: true },
-        { name: "😴 Sleep",        value: `**${pending.sleepHours}**h`,   inline: true },
-        { name: "⚡ Energy",       value: `**${pending.energy}**/10`,     inline: true },
-        { name: "🎯 Focus",        value: `**${pending.focus}**/10`,      inline: true },
-        { name: "🧠 Readiness",    value: readinessLabel,                 inline: true },
-        { name: "\u200B",          value: "\u200B",                       inline: true },
+        { name: "😊 Mood",         value: `**${pending.mood}**/10`,     inline: true },
+        { name: "😴 Sleep",        value: `**${pending.sleepHours}**h`, inline: true },
+        { name: "⚡ Energy",       value: `**${pending.energy}**/10`,   inline: true },
+        { name: "🎯 Focus",        value: `**${pending.focus}**/10`,    inline: true },
+        { name: "🧠 Readiness",    value: readinessLabel,               inline: true },
+        { name: "\u200B",          value: "\u200B",                     inline: true },
         { name: "📋 Trading Plan", value: planPreview }
       )
       .setTimestamp();
@@ -713,11 +751,11 @@ export class InteractionHandler {
       return;
     }
 
-    const rawEntry   = interaction.fields.getTextInputValue("entry");
-    const rawSL      = interaction.fields.getTextInputValue("stop_loss");
-    const rawTP      = interaction.fields.getTextInputValue("take_profit");
-    const rawRisk    = interaction.fields.getTextInputValue("risk_percent");
-    const rawScreen  = interaction.fields.getTextInputValue("screenshot_url").trim();
+    const rawEntry  = interaction.fields.getTextInputValue("entry");
+    const rawSL     = interaction.fields.getTextInputValue("stop_loss");
+    const rawTP     = interaction.fields.getTextInputValue("take_profit");
+    const rawRisk   = interaction.fields.getTextInputValue("risk_percent");
+    const rawScreen = interaction.fields.getTextInputValue("screenshot_url").trim();
 
     const entry      = parseFloat(rawEntry);
     const stopLoss   = parseFloat(rawSL);
@@ -726,7 +764,7 @@ export class InteractionHandler {
 
     if ([entry, stopLoss, takeProfit, riskPct].some(n => isNaN(n))) {
       await interaction.reply({
-        embeds: [new EmbedBuilder().setColor(C.error).setDescription("❌ Entry, SL, TP, and Risk % must be numbers.")],
+        embeds: [new EmbedBuilder().setColor(C.error).setDescription("❌ Entry, SL, TP, and Risk % must all be numbers.")],
         flags: MessageFlags.Ephemeral
       });
       return;
@@ -748,7 +786,10 @@ export class InteractionHandler {
     });
 
     const resultEmoji = { Win: "✅", Loss: "❌", BE: "➖", Open: "🔄" }[trade.result] ?? "📊";
-    const perfLabel   = trade.result === "Win" ? `+${trade.performanceR}R` : trade.result === "Loss" ? `-1R` : `0R`;
+    const perfLabel   = trade.result === "Win"  ? `+${trade.performanceR}R`
+                      : trade.result === "Loss" ? "-1R"
+                      : trade.result === "BE"   ? "±0R"
+                      : "Open";
     const embedColor  = trade.result === "Win" ? 0x2ECC71 : trade.result === "Loss" ? C.error : C.trade;
 
     const embed = new EmbedBuilder()
@@ -787,7 +828,7 @@ export class InteractionHandler {
       }
       await interaction.respond([]);
     } catch {
-      try { await interaction.respond([]); } catch { /* ignore */ }
+      try { await interaction.respond([]); } catch { /* Discord already responded */ }
     }
   }
 }
